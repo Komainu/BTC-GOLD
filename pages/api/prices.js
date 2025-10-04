@@ -1,38 +1,22 @@
 // pages/api/prices.js
-import { getBTCPriceUSD, getGoldPriceUSDPerOunce } from "../../lib/fetchPrices";
-
-let CACHE = { ts: 0, data: null };
-const TTL = 30 * 1000; // 30秒キャッシュ（API制限回避用）
-
 export default async function handler(req, res) {
   try {
-    if (Date.now() - CACHE.ts < TTL && CACHE.data) {
-      return res.status(200).json({ fromCache: true, ...CACHE.data });
-    }
-
-    const [btcUsd, goldUsdPerOunce] = await Promise.all([
-      getBTCPriceUSD(),
-      getGoldPriceUSDPerOunce()
+    const [btcData, goldData] = await Promise.all([
+      fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd").then(r => r.json()),
+      fetch("https://api.coingecko.com/api/v3/simple/price?ids=gold&vs_currencies=usd").then(r => r.json()),
     ]);
 
-    if (btcUsd == null) return res.status(500).json({ error: "btc price unavailable" });
-    if (goldUsdPerOunce == null) return res.status(500).json({ error: "gold price unavailable; set METALS_API_KEY or GOLDAPI_KEY" });
+    const btcUsd = btcData.bitcoin.usd;
+    const goldUsd = goldData.gold.usd;
+    const btcInGold = btcUsd / goldUsd;
 
-    const btcInGoldOunce = btcUsd / goldUsdPerOunce;
-    const goldOuncePerBtc = 1 / btcInGoldOunce;
-
-    const payload = {
+    res.status(200).json({
       btcUsd,
-      goldUsdPerOunce,
-      btcInGoldOunce,
-      goldOuncePerBtc,
-      timestamp: new Date().toISOString()
-    };
-
-    CACHE = { ts: Date.now(), data: payload };
-    return res.status(200).json({ fromCache: false, ...payload });
+      goldUsd,
+      btcInGold,
+      timestamp: new Date().toISOString(),
+    });
   } catch (e) {
-    console.error(e);
-    return res.status(500).json({ error: "internal error", detail: e.message });
+    res.status(500).json({ error: "Failed to fetch prices" });
   }
 }
